@@ -6,6 +6,7 @@
 #include "esp_err.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "hc595_hal.h"
 #include "hc595.h"
 #include "led_scroller.h"
 
@@ -18,7 +19,7 @@
 #define RCLK_GPIO               (16)
 
 static char *TAG = "led_scroller";
-static hc595_dev_t hc595_dev = {0};
+static hc595_handle_t hc595_handle = {0};
 static TaskHandle_t task_handle;
 static int led_nums_max;
 static bool scroll_flag = false;
@@ -34,13 +35,16 @@ static void refresh_task(void *args);
 
 void led_scroller_init(void)
 {
-    hc595_dev.data_in_gpio_num = DATA_IN_GPIO;
-    hc595_dev.shift_clk_gpio_num = SCLK_GPIO;
-    hc595_dev.storage_clk_gpio_num = RCLK_GPIO;
-    hc595_dev.ouput_en_gpio_num = -1;
-    hc595_dev.reset_gpio_num = -1;
-    hc595_dev.flags.output_remain_en = 1;
-    hc595_init(&hc595_dev);
+    hc595_config_t hc_config = {
+        .din_gpio_num = DATA_IN_GPIO,
+        .rst_gpio_num = -1,
+        .sclk_gpio_num = SCLK_GPIO,
+        .rclk_gpio_num = RCLK_GPIO,
+        .oen_gpio_num = -1,
+        .flags.output_remain = 1,
+    };
+    hc595_hal_new_esp(&hc_config, &hc595_handle);
+    hc595_init(hc595_handle);
 
     xTaskCreatePinnedToCore(refresh_task, "led_scroller", 2048, NULL, configMAX_PRIORITIES, &task_handle, 1);
 
@@ -64,10 +68,10 @@ void led_scroller_run(bool flag, uint8_t led_nums, int freq)
         scroll_period = (1000 * 1000) / (freq * DISPLAY_PERIOD);
         scroll_count = 1;
         scroll_sig_index = scroll_dat_index = 1;
-        data[0] = (0xfffe) >> 6;
+        data[0] = ((0xfffe) >> 6) & 0xff;
         data[1] = ((0x1) >> 8) | (((0xfffe) << 2) & 0xff);
         data[2] = (0x1);
-        hc595_write_bytes(&hc595_dev, data, 3);
+        hc595_write_bytes(hc595_handle, data, 3);
     }
     scroll_flag = flag;
 }
@@ -96,7 +100,7 @@ static void refresh_task(void *params)
                 data[0] = value[i] >> 6;
                 data[1] = (sig[i] >> 8) | ((value[i] << 2) & 0xff);
                 data[2] = sig[i];
-                hc595_write_bytes(&hc595_dev, data, 3);
+                hc595_write_bytes(hc595_handle, data, 3);
                 // gpio_level = !gpio_level;
                 // gpio_set_level(32, gpio_level);
             }

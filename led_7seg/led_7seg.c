@@ -7,13 +7,14 @@
 #include "esp_err.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "hc595_hal.h"
 #include "hc595.h"
 #include "led_7seg.h"
 
 typedef struct led_7seg_t led_7seg_t;
 
 struct led_7seg_t {
-    hc595_dev_t hc595_dev;
+    hc595_handle_t hc595_handle;
     TimerHandle_t blink_timer;
     uint8_t bits_num;
     uint8_t refresh_period_per_bit;
@@ -34,15 +35,20 @@ static void blink_timer_cb(TimerHandle_t xTimer);
 
 void led_7seg_init(led_7seg_config_t *config, led_7seg_handle_t *handle)
 {
-    // Init hc595 device
+    // Create led_7seg module
     led_7seg_t *module = (led_7seg_t *)malloc(sizeof(led_7seg_t) + config->bits_num);
-    module->hc595_dev.data_in_gpio_num = config->din_gpio_num;
-    module->hc595_dev.shift_clk_gpio_num = config->sclk_gpio_num;
-    module->hc595_dev.storage_clk_gpio_num = config->rclk_gpio_num;
-    module->hc595_dev.ouput_en_gpio_num = -1;
-    module->hc595_dev.reset_gpio_num = -1;
-    module->hc595_dev.flags.output_remain_en = 1;
-    hc595_init(&(module->hc595_dev));
+
+    // Create hc595 device
+    hc595_config_t hc_config = {
+        .din_gpio_num = config->din_gpio_num,
+        .rst_gpio_num = -1,
+        .sclk_gpio_num = config->sclk_gpio_num,
+        .rclk_gpio_num = config->rclk_gpio_num,
+        .oen_gpio_num = -1,
+        .flags.output_remain = 1,
+    };
+    hc595_hal_new_esp(&hc_config, &module->hc595_handle);
+    hc595_init(module->hc595_handle);
 
     // Init module
     module->bits_num = config->bits_num;
@@ -106,7 +112,7 @@ static void refresh_task(void *param)
     ESP_LOGI(TAG, "refresh_task start");
 
     led_7seg_handle_t handle = (led_7seg_handle_t)param;
-    hc595_dev_t *dev = &handle->hc595_dev;
+    hc595_handle_t hc_handle = handle->hc595_handle;
     uint8_t *display_array;
     uint8_t bits_num;
     uint8_t refresh_bits_mask;
@@ -131,7 +137,7 @@ static void refresh_task(void *param)
                 temp[0] = display_char[17];
             }
             refresh_bits_mask >>= 1;
-            hc595_write_bytes(dev, temp, 2);
+            hc595_write_bytes(hc_handle, temp, 2);
             xTaskDelayUntil(&tick, pdMS_TO_TICKS(period));
         }
     }
